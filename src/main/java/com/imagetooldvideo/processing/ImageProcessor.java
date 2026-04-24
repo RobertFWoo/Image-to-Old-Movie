@@ -305,6 +305,52 @@ public class ImageProcessor {
     }
 
     /**
+     * Builds a transparent RGBA layer that visualizes only the effect contribution.
+     * Alpha is derived from per-pixel difference between source and processed output.
+     */
+    public BufferedImage applyEffectsOnlyAlphaLayer(
+            BufferedImage source,
+            EffectConfig config,
+            int frameIndex,
+            int totalFrames) {
+        BufferedImage processed = applyEffects(source, config, frameIndex, totalFrames);
+        int width = source.getWidth();
+        int height = source.getHeight();
+        BufferedImage layer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int src = source.getRGB(x, y);
+                int prc = processed.getRGB(x, y);
+
+                int sr = (src >> 16) & 0xFF;
+                int sg = (src >> 8) & 0xFF;
+                int sb = src & 0xFF;
+
+                int pr = (prc >> 16) & 0xFF;
+                int pg = (prc >> 8) & 0xFF;
+                int pb = prc & 0xFF;
+
+                int dr = Math.abs(pr - sr);
+                int dg = Math.abs(pg - sg);
+                int db = Math.abs(pb - sb);
+                int diff = Math.max(dr, Math.max(dg, db));
+
+                // Emphasize subtle changes so effect layers remain visible.
+                int alpha = clamp((int) (diff * 1.8f));
+                if (alpha < 8) {
+                    alpha = 0;
+                }
+
+                int argb = (alpha << 24) | (pr << 16) | (pg << 8) | pb;
+                layer.setRGB(x, y, argb);
+            }
+        }
+
+        return layer;
+    }
+
+    /**
      * Horizontal tracking shift — mimics sprocket-hole jitter.
      * The film holes are slightly oversized so the image rattles left/right
      * at a relatively high frequency with occasional larger snaps.

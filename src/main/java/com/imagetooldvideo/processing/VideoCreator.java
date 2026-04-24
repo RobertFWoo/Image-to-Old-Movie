@@ -8,6 +8,7 @@ import org.jcodec.common.model.Rational;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
+import javax.imageio.ImageIO;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -57,5 +58,28 @@ public class VideoCreator {
         }
 
         return outputFile.toPath();
+    }
+
+    /**
+     * Exports frames as transparent PNG files for compositing workflows.
+     */
+    public Path createTransparentPngSequence(
+            VideoSettings settings,
+            String directoryName,
+            FrameGenerator frameGenerator) throws Exception {
+        Path outputDir = settings.getOutputDirectory();
+        Files.createDirectories(outputDir);
+
+        String safeDirName = directoryName.replaceAll("[\\\\/:*?\"<>|]", "_");
+        Path sequenceDir = outputDir.resolve(safeDirName);
+        Files.createDirectories(sequenceDir);
+
+        int totalFrames = settings.getDurationSeconds() * FRAME_RATE;
+        for (int i = 0; i < totalFrames; i++) {
+            BufferedImage frame = frameGenerator.createFrame(i, totalFrames);
+            Path file = sequenceDir.resolve(String.format("frame_%05d.png", i + 1));
+            ImageIO.write(frame, "png", file.toFile());
+        }
+        return sequenceDir;
     }
 }

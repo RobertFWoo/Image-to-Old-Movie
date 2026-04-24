@@ -6,6 +6,7 @@ import com.imagetooldvideo.model.GalleryEntry;
 import com.imagetooldvideo.model.GalleryManager;
 import com.imagetooldvideo.model.GallerySettings;
 import com.imagetooldvideo.model.Preset;
+import com.imagetooldvideo.model.PresetManager;
 import com.imagetooldvideo.model.VideoEntry;
 import com.imagetooldvideo.model.VideoManager;
 import com.imagetooldvideo.model.VideoSettings;
@@ -13,9 +14,13 @@ import com.imagetooldvideo.processing.ImageProcessor;
 import com.imagetooldvideo.processing.VideoCreator;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.concurrent.Task;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -32,6 +37,7 @@ import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 import javax.imageio.ImageIO;
 import java.awt.Desktop;
@@ -43,9 +49,24 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
+import java.util.prefs.Preferences;
 
 public class MainWindow extends Application {
+
+    private static final double WINDOW_WIDTH = 1260;
+    private static final double WINDOW_HEIGHT = 920;
+    private static final double MIN_TOP_PANEL_HEIGHT = 200;
+    private static final double MIN_MIDDLE_PANEL_HEIGHT = 220;
+    private static final double DEFAULT_DIVIDER_POSITION = 0.6;
+    private static final String PREF_DIVIDER_POSITION = "ui.mainDividerPosition";
+    private static final int PREVIEW_MIN_SECONDS = 1;
+    private static final int PREVIEW_MAX_SECONDS = 10;
+    private static final Insets COMPACT_INSETS = new Insets(5);
+    private static final String BUTTON_BASE_STYLE = "-fx-background-color: #444444; -fx-text-fill: #cccccc; -fx-padding: 1 2 1 2; -fx-font-size: 11px;";
+    private static final String TOGGLE_OFF_STYLE = "-fx-background-color: #555555; -fx-text-fill: #dddddd; -fx-padding: 1 6 1 6; -fx-font-size: 10px;";
+    private static final String TOGGLE_ON_STYLE = "-fx-background-color: #2f8f46; -fx-text-fill: white; -fx-padding: 1 6 1 6; -fx-font-size: 10px;";
 
     // ── State ────────────────────────────────────────────────────────────────
     private final ImageProcessor imageProcessor = new ImageProcessor();
@@ -68,10 +89,19 @@ public class MainWindow extends Application {
 
     private Label previewTitle;
     private ImageView previewImageView;
+    private Slider previewFrameSlider;
+    private Label previewFrameLabel;
+    private Spinner<Integer> previewSecondsSpinner;
+    private ComboBox<Integer> previewFpsCombo;
+    private CheckBox previewLoopCheck;
+    private CheckBox effectsOnlyPreviewCheck;
+    private Button previewPlayButton;
     private ComboBox<Preset> presetCombo;
+    private ComboBox<String> customPresetCombo;
     private Spinner<Integer> durationSpinner;
     private TextField outputDirField;
     private Button exportButton;
+    private Button exportEffectsButton;
     private ProgressBar progressBar;
     private Label statusLabel;
     private Path lastExportedPath;
@@ -87,9 +117,13 @@ public class MainWindow extends Application {
     private EffectControls flickerControls;
 
     private boolean applyingPresetDefaults;
+    private PresetManager presetManager;
+    private int previewFrameIndex = 0;
+    private Timeline previewTimeline;
+    private final Preferences uiPrefs = Preferences.userNodeForPackage(MainWindow.class);
 
     private static final class EffectControls {
-        private final ComboBox<EffectMode> mode;
+        private final ToggleButton modeToggle;
         private final Slider variance;
         private final Label varianceValue;
         private final Slider frequency;
@@ -99,7 +133,7 @@ public class MainWindow extends Application {
         private final Canvas waveform;
 
         private EffectControls(
-                ComboBox<EffectMode> mode,
+                ToggleButton modeToggle,
                 Slider variance,
                 Label varianceValue,
                 Slider frequency,
@@ -107,7 +141,7 @@ public class MainWindow extends Application {
                 Slider randomness,
                 Label randomnessValue,
                 Canvas waveform) {
-            this.mode = mode;
+            this.modeToggle = modeToggle;
             this.variance = variance;
             this.varianceValue = varianceValue;
             this.frequency = frequency;
@@ -122,24 +156,50 @@ public class MainWindow extends Application {
     @Override
     public void start(Stage stage) {
         stage.setTitle("Image to Old Video  —  v0.1.0");
+        presetManager = new PresetManager(Path.of(System.getProperty("user.home"), ".image-to-old-video"));
 
         BorderPane root = new BorderPane();
-        root.setPadding(new Insets(16));
+        root.setPadding(COMPACT_INSETS);
         root.setStyle("-fx-background-color: #1e1e1e;");
 
-        root.setTop(buildHeader());
-        root.setCenter(buildCenter());
-        root.setBottom(buildBottom(stage));
+        root.setTop(buildTopBar());
+
+        HBox topPanel = buildCenter();
+        topPanel.setMinHeight(MIN_TOP_PANEL_HEIGHT);
+        VBox middlePanel = buildPresetAndEffectsPanel(stage);
+        middlePanel.setMinHeight(MIN_MIDDLE_PANEL_HEIGHT);
+
+        SplitPane verticalSplit = new SplitPane();
+        verticalSplit.setOrientation(Orientation.VERTICAL);
+        verticalSplit.getItems().addAll(topPanel, middlePanel);
+        verticalSplit.setDividerPositions(DEFAULT_DIVIDER_POSITION);
+        SplitPane.setResizableWithParent(topPanel, true);
+        SplitPane.setResizableWithParent(middlePanel, true);
+        bindDividerPersistence(verticalSplit);
+
+        root.setCenter(verticalSplit);
+        root.setBottom(buildBottomBars());
 
         // Sync button state after all UI nodes exist
         updateStorageIndicator();
         updateExportButtonState();
 
-        stage.setScene(new Scene(root, 1260, 920));
-        stage.setResizable(true);
+        stage.setScene(new Scene(root, WINDOW_WIDTH, WINDOW_HEIGHT));
+        stage.setResizable(false);
         stage.show();
 
+        double savedDivider = uiPrefs.getDouble(PREF_DIVIDER_POSITION, DEFAULT_DIVIDER_POSITION);
+        Platform.runLater(() -> verticalSplit.setDividerPositions(savedDivider));
+
         loadSampleImageIfNeeded();
+    }
+
+    private void bindDividerPersistence(SplitPane splitPane) {
+        if (splitPane.getDividers().isEmpty()) {
+            return;
+        }
+        ReadOnlyDoubleProperty pos = splitPane.getDividers().get(0).positionProperty();
+        pos.addListener((obs, oldVal, newVal) -> uiPrefs.putDouble(PREF_DIVIDER_POSITION, newVal.doubleValue()));
     }
 
     /** Loads the bundled sample image on first launch so the UI is not empty. */
@@ -159,18 +219,42 @@ public class MainWindow extends Application {
         }
     }
 
-    // ── Header ───────────────────────────────────────────────────────────────
-    private Label buildHeader() {
+    // ── Top bar ──────────────────────────────────────────────────────────────
+    private HBox buildTopBar() {
+        Button helpButton = new Button("Help");
+        helpButton.setStyle(BUTTON_BASE_STYLE);
+        helpButton.setOnAction(e -> {
+            Alert help = new Alert(Alert.AlertType.INFORMATION);
+            help.setTitle("Help");
+            help.setHeaderText("Image to Old Video v0.1.0");
+            help.setContentText("1) Load an image in the top section.\n"
+                    + "2) Pick a preset and adjust effects.\n"
+                    + "3) Click Export Video at the bottom.");
+            help.showAndWait();
+        });
+
         Label title = new Label("Image to Old Video");
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #d4a847;");
-        BorderPane.setAlignment(title, Pos.CENTER);
-        BorderPane.setMargin(title, new Insets(0, 0, 14, 0));
-        return title;
+        Label version = new Label("v0.1.0");
+        version.setStyle("-fx-text-fill: #aaaaaa; -fx-font-size: 12px;");
+
+        VBox titleBox = new VBox(1, title, version);
+        titleBox.setAlignment(Pos.CENTER);
+
+        Region leftSpacer = new Region();
+        Region rightSpacer = new Region();
+        HBox.setHgrow(leftSpacer, Priority.ALWAYS);
+        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
+
+        HBox bar = new HBox(8, helpButton, leftSpacer, titleBox, rightSpacer);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(0, 0, 5, 0));
+        return bar;
     }
 
     // ── Center: left tab pane (images / videos) + preview ───────────────────────
     private HBox buildCenter() {
-        HBox center = new HBox(16);
+        HBox center = new HBox(8);
         center.setAlignment(Pos.TOP_LEFT);
 
         TabPane leftTabs = buildLeftTabPane();
@@ -218,7 +302,7 @@ public class MainWindow extends Application {
         galleryList.getItems().addAll(galleryManager.getEntries());
 
         Button addButton = new Button("Add\u2026");
-        addButton.setStyle("-fx-background-color: #444444; -fx-text-fill: #cccccc; -fx-padding: 3 12;");
+        addButton.setStyle(BUTTON_BASE_STYLE);
         addButton.setOnAction(e -> {
             FileChooser chooser = new FileChooser();
             chooser.setTitle("Add Images to Gallery");
@@ -236,7 +320,7 @@ public class MainWindow extends Application {
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(8, titleLabel, spacer, addButton);
+        HBox header = new HBox(5, titleLabel, spacer, addButton);
         header.setAlignment(Pos.CENTER_LEFT);
 
         // ── List ──────────────────────────────────────────────────────────────
@@ -257,9 +341,9 @@ public class MainWindow extends Application {
         });
 
         // ── Panel ─────────────────────────────────────────────────────────────
-        VBox panel = new VBox(8, header, galleryList);
+        VBox panel = new VBox(5, header, galleryList);
         panel.setPrefSize(420, 360);
-        panel.setPadding(new Insets(10));
+        panel.setPadding(COMPACT_INSETS);
         panel.setBorder(new Border(new BorderStroke(
                 Color.web("#555555"), BorderStrokeStyle.DASHED,
                 new CornerRadii(8), new BorderWidths(2))));
@@ -313,7 +397,7 @@ public class MainWindow extends Application {
 
         HBox row = new HBox(10, thumbPane, textBox);
         row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(4, 6, 4, 6));
+        row.setPadding(COMPACT_INSETS);
 
         MenuItem renameItem  = new MenuItem("Rename\u2026");
         MenuItem descItem    = new MenuItem("Edit Description\u2026");
@@ -427,12 +511,12 @@ public class MainWindow extends Application {
         HBox.setHgrow(storageBox, Priority.ALWAYS);
 
         Button settingsBtn = new Button("⚙ Settings");
-        settingsBtn.setStyle("-fx-background-color: #444444; -fx-text-fill: #cccccc; -fx-padding: 3 10;");
+        settingsBtn.setStyle(BUTTON_BASE_STYLE);
         settingsBtn.setOnAction(e -> showGallerySettingsDialog());
 
-        HBox header = new HBox(8, storageBox, settingsBtn);
+        HBox header = new HBox(5, storageBox, settingsBtn);
         header.setAlignment(Pos.CENTER_LEFT);
-        header.setPadding(new Insets(0, 0, 4, 0));
+        header.setPadding(new Insets(0, 0, 5, 0));
 
         // ── Video list ─────────────────────────────────────────────
         Label emptyLabel = new Label("No videos yet.\nExport a video to see it here.");
@@ -454,8 +538,8 @@ public class MainWindow extends Application {
         });
 
         // ── Panel container ─────────────────────────────────────────
-        VBox panel = new VBox(8, header, videoList);
-        panel.setPadding(new Insets(10));
+        VBox panel = new VBox(5, header, videoList);
+        panel.setPadding(COMPACT_INSETS);
         panel.setBorder(new Border(new BorderStroke(
                 Color.web("#555555"), BorderStrokeStyle.DASHED,
                 new CornerRadii(8), new BorderWidths(2))));
@@ -497,7 +581,7 @@ public class MainWindow extends Application {
 
         HBox row = new HBox(10, thumbStack, textBox);
         row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(4, 6, 4, 6));
+        row.setPadding(COMPACT_INSETS);
 
         MenuItem playItem   = new MenuItem("▶  Play");
         MenuItem renameItem = new MenuItem("Rename…");
@@ -639,11 +723,22 @@ public class MainWindow extends Application {
                 && gallerySettings != null
                 && videoManager.isSpaceAtCapacity(gallerySettings);
         exportButton.setDisable(noImage || atCapacity);
+        if (exportEffectsButton != null) {
+            exportEffectsButton.setDisable(noImage || atCapacity);
+        }
         if (atCapacity && !noImage) {
             exportButton.setTooltip(new Tooltip(
                     "Storage limit reached. Free space or raise the limit in Video Gallery → Settings."));
+            if (exportEffectsButton != null) {
+                exportEffectsButton.setTooltip(new Tooltip(
+                        "Storage limit reached. Free space or raise the limit in Video Gallery → Settings."));
+            }
         } else {
             exportButton.setTooltip(null);
+            if (exportEffectsButton != null) {
+                exportEffectsButton.setTooltip(new Tooltip(
+                        "Export transparent PNG frames containing only effect layers."));
+            }
         }
     }
 
@@ -654,15 +749,16 @@ public class MainWindow extends Application {
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
         GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(12);
-        grid.setPadding(new Insets(16));
+        grid.setHgap(5);
+        grid.setVgap(5);
+        grid.setPadding(COMPACT_INSETS);
 
         // Output folder
         Label outLabel  = new Label("Output folder:");
         TextField outField = new TextField(settings.getOutputDirectory().toString());
         outField.setPrefWidth(280);
         Button browseBtn = new Button("Browse…");
+        browseBtn.setStyle(BUTTON_BASE_STYLE);
         browseBtn.setOnAction(e -> {
             DirectoryChooser dc = new DirectoryChooser();
             dc.setTitle("Select Output Folder");
@@ -755,8 +851,98 @@ public class MainWindow extends Application {
         Tooltip.install(previewPane, new Tooltip("Drop an image here to replace the current one, or click to browse."));
         configureImageInputTarget(previewPane);
 
-        VBox box = new VBox(6, previewTitle, previewPane);
+        previewImageView.fitWidthProperty().bind(previewPane.widthProperty().subtract(10));
+        previewImageView.fitHeightProperty().bind(previewPane.heightProperty().subtract(10));
+
+        Button prevFrameButton = new Button("<");
+        prevFrameButton.setStyle(BUTTON_BASE_STYLE);
+        prevFrameButton.setOnAction(e -> {
+            stopPreviewPlayback();
+            setPreviewFrame(previewFrameIndex - 1);
+        });
+
+        Button nextFrameButton = new Button("> ");
+        nextFrameButton.setStyle(BUTTON_BASE_STYLE);
+        nextFrameButton.setOnAction(e -> {
+            stopPreviewPlayback();
+            setPreviewFrame(previewFrameIndex + 1);
+        });
+
+        previewPlayButton = new Button("Play");
+        previewPlayButton.setStyle(BUTTON_BASE_STYLE);
+        previewPlayButton.setOnAction(e -> {
+            if (isPreviewPlaying()) {
+                stopPreviewPlayback();
+            } else {
+                startPreviewPlayback();
+            }
+        });
+
+        previewLoopCheck = new CheckBox("Loop");
+        previewLoopCheck.setSelected(true);
+        previewLoopCheck.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 11px;");
+
+        effectsOnlyPreviewCheck = new CheckBox("Effects-only Alpha");
+        effectsOnlyPreviewCheck.setSelected(false);
+        effectsOnlyPreviewCheck.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 11px;");
+        effectsOnlyPreviewCheck.selectedProperty().addListener((obs, old, selected) -> renderPreviewFrame());
+
+        previewSecondsSpinner = new Spinner<>(PREVIEW_MIN_SECONDS, PREVIEW_MAX_SECONDS, 2);
+        previewSecondsSpinner.setPrefWidth(70);
+        previewSecondsSpinner.setEditable(true);
+        previewSecondsSpinner.valueProperty().addListener((obs, old, val) -> {
+            stopPreviewPlayback();
+            updatePreviewFrameBounds();
+            renderPreviewFrame();
+        });
+
+        previewFpsCombo = new ComboBox<>();
+        previewFpsCombo.getItems().addAll(30, 60);
+        previewFpsCombo.setValue(30);
+        previewFpsCombo.setPrefWidth(70);
+        previewFpsCombo.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #000000; -fx-font-size: 11px;");
+        previewFpsCombo.valueProperty().addListener((obs, old, val) -> {
+            stopPreviewPlayback();
+            updatePreviewFrameBounds();
+            renderPreviewFrame();
+        });
+
+        previewFrameSlider = new Slider(0, 59, 0);
+        previewFrameSlider.setPrefWidth(250);
+        previewFrameSlider.setOnMousePressed(e -> stopPreviewPlayback());
+        previewFrameSlider.valueProperty().addListener((obs, old, val) -> {
+            if (previewFrameSlider.isValueChanging()) {
+                previewFrameIndex = (int) Math.round(val.doubleValue());
+                renderPreviewFrame();
+            }
+        });
+        previewFrameSlider.setOnMouseReleased(e -> {
+            previewFrameIndex = (int) Math.round(previewFrameSlider.getValue());
+            renderPreviewFrame();
+        });
+
+        previewFrameLabel = new Label("Frame 1 / 60");
+        previewFrameLabel.setStyle("-fx-text-fill: #aaaaaa; -fx-font-size: 11px;");
+
+        Label durationLabel = new Label("Sec:");
+        durationLabel.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 11px;");
+        Label fpsLabel = new Label("FPS:");
+        fpsLabel.setStyle("-fx-text-fill: #cccccc; -fx-font-size: 11px;");
+
+        HBox controlsRow = new HBox(5,
+                prevFrameButton, nextFrameButton, previewPlayButton,
+            previewLoopCheck, effectsOnlyPreviewCheck,
+                durationLabel, previewSecondsSpinner,
+                fpsLabel, previewFpsCombo,
+                previewFrameSlider, previewFrameLabel);
+        controlsRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox box = new VBox(6, previewTitle, previewPane, controlsRow);
+        box.setPadding(COMPACT_INSETS);
         box.setAlignment(Pos.TOP_LEFT);
+
+        updatePreviewFrameBounds();
+        updatePreviewFrameLabel();
         return box;
     }
 
@@ -795,24 +981,111 @@ public class MainWindow extends Application {
         return chooser.showOpenDialog(target.getScene().getWindow());
     }
 
-    // ── Bottom: settings + export ─────────────────────────────────────────────
-    private VBox buildBottom(Stage stage) {
+    // ── Presets + effects (middle panel) ────────────────────────────────────
+    private VBox buildPresetAndEffectsPanel(Stage stage) {
         // Preset selector
         Label presetLabel = new Label("Effect:");
         presetLabel.setStyle("-fx-text-fill: #cccccc;");
         presetCombo = new ComboBox<>();
         presetCombo.getItems().addAll(Preset.values());
         presetCombo.setPrefWidth(170);
+        presetCombo.setPrefHeight(24);
         presetCombo.setValue(Preset.FIFTIES_FILM);
         presetCombo.setStyle(
                 "-fx-background-color: #ffffff; "
                 + "-fx-text-fill: #000000; "
                 + "-fx-control-inner-background: #ffffff; "
                 + "-fx-focus-color: #d4a847; "
-                + "-fx-faint-focus-color: #d4a84722;");
+            + "-fx-faint-focus-color: #d4a84722; "
+            + "-fx-padding: 2;");
         presetCombo.valueProperty().addListener((obs, old, val) -> {
             applyPresetDefaults(val);
             refreshPreviewIfLoaded();
+        });
+
+        Label customPresetLabel = new Label("Custom:");
+        customPresetLabel.setStyle("-fx-text-fill: #cccccc;");
+        customPresetCombo = new ComboBox<>();
+        customPresetCombo.setPrefWidth(190);
+        customPresetCombo.setPrefHeight(24);
+        customPresetCombo.setStyle(
+                "-fx-background-color: #ffffff; "
+                        + "-fx-text-fill: #000000; "
+                        + "-fx-control-inner-background: #ffffff; "
+                + "-fx-padding: 2; -fx-font-size: 11px;");
+        refreshCustomPresetCombo();
+        customPresetCombo.setOnAction(e -> {
+            String selected = customPresetCombo.getValue();
+            if (selected == null || selected.isBlank()) {
+                return;
+            }
+            PresetManager.PresetData data = presetManager.getCustomPreset(selected);
+            if (data == null) {
+                return;
+            }
+            applyCustomPreset(data);
+            refreshPreviewIfLoaded();
+            setStatus("Applied custom preset: " + selected, false);
+        });
+
+        Button addPresetButton = new Button("Add");
+        addPresetButton.setStyle(BUTTON_BASE_STYLE);
+        addPresetButton.setOnAction(e -> {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("Add Custom Preset");
+            dialog.setHeaderText(null);
+            dialog.setContentText("Preset name:");
+            Optional<String> input = dialog.showAndWait();
+            if (input.isEmpty()) {
+                return;
+            }
+            String name = input.get().trim();
+            if (name.isBlank()) {
+                setStatus("Preset name cannot be blank.", true);
+                return;
+            }
+            if (PresetManager.isBuiltInPreset(name)) {
+                setStatus("That name is reserved for built-in presets.", true);
+                return;
+            }
+            presetManager.savePreset(name, captureCurrentPresetData(name));
+            refreshCustomPresetCombo();
+            customPresetCombo.setValue(name);
+            setStatus("Saved custom preset: " + name, false);
+        });
+
+        Button updatePresetButton = new Button("Update");
+        updatePresetButton.setStyle(BUTTON_BASE_STYLE);
+        updatePresetButton.setOnAction(e -> {
+            String selected = customPresetCombo.getValue();
+            if (selected == null || selected.isBlank()) {
+                setStatus("Select a custom preset to update.", true);
+                return;
+            }
+            presetManager.savePreset(selected, captureCurrentPresetData(selected));
+            setStatus("Updated custom preset: " + selected, false);
+        });
+
+        Button deletePresetButton = new Button("Delete");
+        deletePresetButton.setStyle(BUTTON_BASE_STYLE);
+        deletePresetButton.setOnAction(e -> {
+            String selected = customPresetCombo.getValue();
+            if (selected == null || selected.isBlank()) {
+                setStatus("Select a custom preset to delete.", true);
+                return;
+            }
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Delete custom preset \"" + selected + "\"?",
+                    ButtonType.YES, ButtonType.NO);
+            confirm.setHeaderText(null);
+            confirm.setTitle("Delete Preset");
+            confirm.showAndWait().ifPresent(bt -> {
+                if (bt == ButtonType.YES) {
+                    presetManager.deletePreset(selected);
+                    refreshCustomPresetCombo();
+                    setStatus("Deleted custom preset: " + selected, false);
+                }
+            });
         });
 
         // Duration row
@@ -821,6 +1094,9 @@ public class MainWindow extends Application {
         durationSpinner = new Spinner<>(1, 300, settings.getDurationSeconds());
         durationSpinner.setEditable(true);
         durationSpinner.setPrefWidth(130);
+        durationSpinner.setPrefHeight(24);
+        durationSpinner.setStyle("-fx-padding: 2;");
+        durationSpinner.getEditor().setStyle("-fx-padding: 2;");
         durationSpinner.valueProperty().addListener((obs, old, val) -> settings.setDurationSeconds(val));
 
         // Output folder row
@@ -828,8 +1104,9 @@ public class MainWindow extends Application {
         outputLabel.setStyle("-fx-text-fill: #cccccc;");
         outputDirField = new TextField(settings.getOutputDirectory().toString());
         outputDirField.setPrefWidth(470);
+        outputDirField.setPrefHeight(24);
         outputDirField.setStyle(
-                "-fx-background-color: #2a2a2a; -fx-text-fill: #cccccc; -fx-border-color: #555555;");
+            "-fx-background-color: #2a2a2a; -fx-text-fill: #cccccc; -fx-border-color: #555555; -fx-padding: 2; -fx-font-size: 11px;");
         outputDirField.textProperty().addListener((obs, old, val) -> {
             if (!val.isBlank()) {
                 settings.setOutputDirectory(Path.of(val.trim()));
@@ -837,7 +1114,7 @@ public class MainWindow extends Application {
         });
 
         Button browseButton = new Button("Browse…");
-        browseButton.setStyle("-fx-background-color: #444444; -fx-text-fill: #cccccc;");
+        browseButton.setStyle(BUTTON_BASE_STYLE);
         browseButton.setOnAction(e -> {
             DirectoryChooser chooser = new DirectoryChooser();
             chooser.setTitle("Select Output Folder");
@@ -848,65 +1125,150 @@ public class MainWindow extends Application {
             }
         });
 
-        HBox settingsRow = new HBox(14,
+        HBox settingsRow = new HBox(8,
                 presetLabel, presetCombo,
+            customPresetLabel, customPresetCombo,
+            addPresetButton, updatePresetButton, deletePresetButton,
                 durationLabel, durationSpinner,
                 outputLabel, outputDirField, browseButton);
         settingsRow.setAlignment(Pos.CENTER_LEFT);
 
         GridPane effectsGrid = buildEffectsGrid();
+        ScrollPane effectsScrollPane = new ScrollPane(effectsGrid);
+        effectsScrollPane.setFitToWidth(true);
+        effectsScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        effectsScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        effectsScrollPane.setPannable(true);
+        effectsScrollPane.setPrefViewportHeight(250);
+        effectsScrollPane.setMinViewportHeight(220);
+        effectsScrollPane.setStyle("-fx-background: #1e1e1e; -fx-background-color: #1e1e1e;");
 
         // Randomize / Reset buttons placed just above the effects grid
         Button randomizeButton = new Button("\uD83C\uDFB2  Randomize");
         randomizeButton.setStyle(
                 "-fx-background-color: #4a6fa5; -fx-text-fill: #ffffff; "
-                        + "-fx-font-weight: bold; -fx-padding: 5 16;");
+                + "-fx-font-weight: bold; -fx-padding: 5 5 5 5;");
         randomizeButton.setOnAction(e -> randomizeEffects());
 
         Button resetButton = new Button("Reset All");
         resetButton.setStyle(
                 "-fx-background-color: #555555; -fx-text-fill: #cccccc; "
-                        + "-fx-padding: 5 16;");
+                + "-fx-padding: 5 5 5 5;");
         resetButton.setOnAction(e -> {
             presetCombo.setValue(Preset.NONE);
             resetAllEffects();
             refreshPreviewIfLoaded();
         });
 
-        HBox effectButtonRow = new HBox(10, randomizeButton, resetButton);
+        HBox effectButtonRow = new HBox(5, randomizeButton, resetButton);
         effectButtonRow.setAlignment(Pos.CENTER_LEFT);
-        effectButtonRow.setPadding(new Insets(0, 0, 2, 0));
+        effectButtonRow.setPadding(new Insets(0, 0, 5, 0));
 
-        // Progress + export
+        VBox middlePanel = new VBox(5, new Separator(), settingsRow, effectButtonRow, effectsScrollPane);
+        middlePanel.setStyle("-fx-padding: 5 0 0 0;");
+        VBox.setVgrow(effectsScrollPane, Priority.ALWAYS);
+
+        applyPresetDefaults(presetCombo.getValue());
+        return middlePanel;
+    }
+
+    // ── Fixed bottom bars (export + status) ─────────────────────────────────
+    private VBox buildBottomBars() {
         progressBar = new ProgressBar(0);
-        progressBar.setPrefWidth(380);
+        progressBar.setPrefWidth(420);
         progressBar.setVisible(false);
-
-        statusLabel = new Label("");
-        statusLabel.setStyle("-fx-text-fill: #888888; -fx-font-size: 12px;");
 
         exportButton = new Button("Export Video");
         exportButton.setStyle(
                 "-fx-background-color: #d4a847; -fx-text-fill: #1e1e1e; "
-                        + "-fx-font-weight: bold; -fx-padding: 8 28;");
+                        + "-fx-font-weight: bold; -fx-padding: 2;");
         exportButton.setDisable(true);
         exportButton.setOnAction(e -> exportVideo());
 
-        HBox actionRow = new HBox(14, exportButton, progressBar, statusLabel);
-        actionRow.setAlignment(Pos.CENTER_LEFT);
+        exportEffectsButton = new Button("Export Effects Alpha");
+        exportEffectsButton.setStyle(BUTTON_BASE_STYLE);
+        exportEffectsButton.setDisable(true);
+        exportEffectsButton.setOnAction(e -> exportEffectsAlphaSequence());
 
-        VBox bottom = new VBox(10, new Separator(), settingsRow, effectButtonRow, effectsGrid, actionRow);
-        bottom.setStyle("-fx-padding: 10 0 0 0;");
+        HBox exportRow = new HBox(8, exportButton, exportEffectsButton, progressBar);
+        exportRow.setAlignment(Pos.CENTER_LEFT);
+        exportRow.setPadding(new Insets(5, 0, 5, 0));
 
-        applyPresetDefaults(presetCombo.getValue());
-        return bottom;
+        statusLabel = new Label("Ready");
+        statusLabel.setMaxWidth(Double.MAX_VALUE);
+        statusLabel.setStyle("-fx-text-fill: #888888; -fx-font-size: 12px;");
+        HBox statusBar = new HBox(statusLabel);
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        statusBar.setPadding(new Insets(2, 6, 2, 6));
+        statusBar.setStyle("-fx-background-color: #242424; -fx-border-color: #3a3a3a; -fx-border-width: 1 0 0 0;");
+
+        return new VBox(exportRow, statusBar);
+    }
+
+    private void refreshCustomPresetCombo() {
+        if (customPresetCombo == null) {
+            return;
+        }
+        String previous = customPresetCombo.getValue();
+        customPresetCombo.getItems().setAll(presetManager.getCustomPresetNames());
+        if (previous != null && customPresetCombo.getItems().contains(previous)) {
+            customPresetCombo.setValue(previous);
+        } else if (!customPresetCombo.getItems().isEmpty()) {
+            customPresetCombo.setValue(customPresetCombo.getItems().get(0));
+        } else {
+            customPresetCombo.setValue(null);
+        }
+    }
+
+    private PresetManager.PresetData captureCurrentPresetData(String name) {
+        return new PresetManager.PresetData(
+                name,
+                lightLeakControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(lightLeakControls.variance.getValue()),
+                (int) Math.round(lightLeakControls.frequency.getValue()),
+                (int) Math.round(lightLeakControls.randomness.getValue()),
+                vignetteControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(vignetteControls.variance.getValue()),
+                (int) Math.round(vignetteControls.frequency.getValue()),
+                (int) Math.round(vignetteControls.randomness.getValue()),
+                grainControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(grainControls.variance.getValue()),
+                (int) Math.round(grainControls.frequency.getValue()),
+                (int) Math.round(grainControls.randomness.getValue()),
+                dustControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(dustControls.variance.getValue()),
+                (int) Math.round(dustControls.frequency.getValue()),
+                (int) Math.round(dustControls.randomness.getValue()),
+                scratchesControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(scratchesControls.variance.getValue()),
+                (int) Math.round(scratchesControls.frequency.getValue()),
+                (int) Math.round(scratchesControls.randomness.getValue()),
+                trackingHControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(trackingHControls.variance.getValue()),
+                (int) Math.round(trackingHControls.frequency.getValue()),
+                (int) Math.round(trackingHControls.randomness.getValue()),
+                flickerControls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
+                (int) Math.round(flickerControls.variance.getValue()),
+                (int) Math.round(flickerControls.frequency.getValue()),
+                (int) Math.round(flickerControls.randomness.getValue()));
+    }
+
+    private void applyCustomPreset(PresetManager.PresetData data) {
+        setEffect(lightLeakControls, data.lightLeakMode(), data.lightLeakVar(), data.lightLeakFreq(), data.lightLeakRand());
+        setEffect(vignetteControls, data.vignetteMode(), data.vignetteVar(), data.vignetteFreq(), data.vignetteRand());
+        setEffect(grainControls, data.grainMode(), data.grainVar(), data.grainFreq(), data.grainRand());
+        setEffect(dustControls, data.dustMode(), data.dustVar(), data.dustFreq(), data.dustRand());
+        setEffect(scratchesControls, data.scratchesMode(), data.scratchesVar(), data.scratchesFreq(), data.scratchesRand());
+        setEffect(trackingHControls, data.trackingMode(), data.trackingVar(), data.trackingFreq(), data.trackingRand());
+        setEffect(trackingVControls, data.trackingMode(), data.trackingVar(), data.trackingFreq(), data.trackingRand());
+        setEffect(flickerControls, data.flickerMode(), data.flickerVar(), data.flickerFreq(), data.flickerRand());
     }
 
     private GridPane buildEffectsGrid() {
         GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(8);
-        grid.setPadding(new Insets(4, 0, 6, 0));
+        grid.setHgap(5);
+        grid.setVgap(5);
+        grid.setPadding(COMPACT_INSETS);
 
         addEffectsHeader(grid);
 
@@ -933,7 +1295,7 @@ public class MainWindow extends Application {
 
     private void addEffectsHeader(GridPane grid) {
         Label c1 = new Label("Effect");
-        Label c2 = new Label("Mode");
+        Label c2 = new Label("On/Off");
         Label c3 = new Label("Variance");
         Label c4 = new Label("Frequency");
         Label c5 = new Label("Randomness");
@@ -950,13 +1312,10 @@ public class MainWindow extends Application {
     }
 
     private EffectControls createEffectControls(EffectMode modeDefault, int varianceDefault, int frequencyDefault, int randomnessDefault) {
-        ComboBox<EffectMode> mode = new ComboBox<>();
-        mode.getItems().addAll(EffectMode.values());
-        mode.setValue(modeDefault);
-        mode.setPrefWidth(110);
-        mode.setStyle("-fx-background-color: #ffffff; -fx-text-fill: #000000; "
-                + "-fx-control-inner-background: #ffffff;");
-        mode.valueProperty().addListener((obs, old, val) -> refreshPreviewIfLoaded());
+        ToggleButton modeToggle = new ToggleButton();
+        modeToggle.setPrefWidth(78);
+        modeToggle.setPrefHeight(20);
+        modeToggle.setMinHeight(20);
 
         Slider variance = createSlider(varianceDefault);
         Label varianceValue = createValueLabel(varianceDefault);
@@ -968,6 +1327,15 @@ public class MainWindow extends Application {
         Label randomnessValue = createValueLabel(randomnessDefault);
 
         Canvas waveform = new Canvas(130, 26);
+
+        EffectControls controls = new EffectControls(
+            modeToggle, variance, varianceValue, frequency, frequencyValue, randomness, randomnessValue, waveform);
+
+        modeToggle.selectedProperty().addListener((obs, old, isOn) -> {
+            applyModeToggleVisual(modeToggle, isOn);
+            setEffectControlsEnabled(controls, isOn);
+            refreshPreviewIfLoaded();
+        });
 
         // Single redraw runnable captures all three sliders by reference
         Runnable redraw = () -> redrawWaveform(
@@ -992,9 +1360,33 @@ public class MainWindow extends Application {
             redraw.run();
         });
 
+        boolean defaultOn = modeDefault == EffectMode.ON;
+        modeToggle.setSelected(defaultOn);
+        applyModeToggleVisual(modeToggle, defaultOn);
+        setEffectControlsEnabled(controls, defaultOn);
         redraw.run();
 
-        return new EffectControls(mode, variance, varianceValue, frequency, frequencyValue, randomness, randomnessValue, waveform);
+        return controls;
+    }
+
+    private void applyModeToggleVisual(ToggleButton toggle, boolean on) {
+        if (on) {
+            toggle.setText("ON");
+            toggle.setStyle(TOGGLE_ON_STYLE);
+        } else {
+            toggle.setText("OFF");
+            toggle.setStyle(TOGGLE_OFF_STYLE);
+        }
+    }
+
+    private void setEffectControlsEnabled(EffectControls controls, boolean enabled) {
+        controls.variance.setDisable(!enabled);
+        controls.frequency.setDisable(!enabled);
+        controls.randomness.setDisable(!enabled);
+        controls.varianceValue.setDisable(!enabled);
+        controls.frequencyValue.setDisable(!enabled);
+        controls.randomnessValue.setDisable(!enabled);
+        controls.waveform.setOpacity(enabled ? 1.0 : 0.35);
     }
 
     private Slider createSlider(int value) {
@@ -1004,13 +1396,15 @@ public class MainWindow extends Application {
         slider.setSnapToTicks(false);
         slider.setShowTickMarks(false);
         slider.setShowTickLabels(false);
-        slider.setPrefWidth(150);
+        slider.setPrefWidth(130);
+        slider.setPrefHeight(16);
+        slider.setStyle("-fx-padding: 0 2 0 2;");
         return slider;
     }
 
     private Label createValueLabel(int value) {
         Label label = new Label(Integer.toString(value));
-        label.setStyle("-fx-text-fill: #bbbbbb;");
+        label.setStyle("-fx-text-fill: #bbbbbb; -fx-font-size: 10px;");
         label.setMinWidth(28);
         return label;
     }
@@ -1018,22 +1412,22 @@ public class MainWindow extends Application {
     private void addEffectRow(GridPane grid, int row, String name, EffectControls controls) {
         Label effectLabel = new Label(name);
         effectLabel.setStyle("-fx-text-fill: #cccccc;");
-        effectLabel.setMinWidth(100);
+        effectLabel.setMinWidth(90);
 
-        HBox varianceBox = new HBox(6, controls.variance, controls.varianceValue);
+        HBox varianceBox = new HBox(5, controls.variance, controls.varianceValue);
         varianceBox.setAlignment(Pos.CENTER_LEFT);
 
-        HBox frequencyBox = new HBox(6, controls.frequency, controls.frequencyValue);
+        HBox frequencyBox = new HBox(5, controls.frequency, controls.frequencyValue);
         frequencyBox.setAlignment(Pos.CENTER_LEFT);
 
-        HBox randomnessBox = new HBox(6, controls.randomness, controls.randomnessValue);
+        HBox randomnessBox = new HBox(5, controls.randomness, controls.randomnessValue);
         randomnessBox.setAlignment(Pos.CENTER_LEFT);
 
         StackPane waveformPane = new StackPane(controls.waveform);
         waveformPane.setStyle("-fx-background-color: #111111; -fx-border-color: #333333; -fx-border-width: 1;");
 
         grid.add(effectLabel,   0, row);
-        grid.add(controls.mode, 1, row);
+        grid.add(controls.modeToggle, 1, row);
         grid.add(varianceBox,   2, row);
         grid.add(frequencyBox,  3, row);
         grid.add(randomnessBox, 4, row);
@@ -1154,7 +1548,7 @@ public class MainWindow extends Application {
     }
 
     private void setEffect(EffectControls controls, EffectMode mode, int variance, int frequency, int randomness) {
-        controls.mode.setValue(mode);
+        controls.modeToggle.setSelected(mode == EffectMode.ON);
         controls.variance.setValue(variance);
         controls.frequency.setValue(frequency);
         controls.randomness.setValue(randomness);
@@ -1163,21 +1557,118 @@ public class MainWindow extends Application {
         controls.randomnessValue.setText(Integer.toString(randomness));
     }
 
+    private int getPreviewFps() {
+        Integer fps = previewFpsCombo != null ? previewFpsCombo.getValue() : null;
+        return fps == null ? 30 : fps;
+    }
+
+    private int getPreviewTotalFrames() {
+        int seconds = previewSecondsSpinner != null ? previewSecondsSpinner.getValue() : 2;
+        return Math.max(1, seconds * getPreviewFps());
+    }
+
+    private void updatePreviewFrameBounds() {
+        if (previewFrameSlider == null) {
+            return;
+        }
+        int totalFrames = getPreviewTotalFrames();
+        previewFrameIndex = Math.max(0, Math.min(previewFrameIndex, totalFrames - 1));
+        previewFrameSlider.setMin(0);
+        previewFrameSlider.setMax(totalFrames - 1);
+        previewFrameSlider.setValue(previewFrameIndex);
+        updatePreviewFrameLabel();
+    }
+
+    private void updatePreviewFrameLabel() {
+        if (previewFrameLabel == null) {
+            return;
+        }
+        int totalFrames = getPreviewTotalFrames();
+        previewFrameLabel.setText("Frame " + (previewFrameIndex + 1) + " / " + totalFrames);
+    }
+
+    private void setPreviewFrame(int frameIndex) {
+        int totalFrames = getPreviewTotalFrames();
+        previewFrameIndex = Math.max(0, Math.min(frameIndex, totalFrames - 1));
+        if (previewFrameSlider != null) {
+            previewFrameSlider.setValue(previewFrameIndex);
+        }
+        renderPreviewFrame();
+    }
+
+    private boolean isPreviewPlaying() {
+        return previewTimeline != null && previewTimeline.getStatus() == Timeline.Status.RUNNING;
+    }
+
+    private void startPreviewPlayback() {
+        if (rawEvenImage == null) {
+            return;
+        }
+        stopPreviewPlayback();
+        int fps = getPreviewFps();
+        previewTimeline = new Timeline(new KeyFrame(Duration.millis(1000.0 / fps), e -> {
+            int total = getPreviewTotalFrames();
+            if (previewFrameIndex >= total - 1) {
+                if (previewLoopCheck != null && previewLoopCheck.isSelected()) {
+                    previewFrameIndex = 0;
+                } else {
+                    stopPreviewPlayback();
+                    return;
+                }
+            } else {
+                previewFrameIndex++;
+            }
+            if (previewFrameSlider != null) {
+                previewFrameSlider.setValue(previewFrameIndex);
+            }
+            renderPreviewFrame();
+        }));
+        previewTimeline.setCycleCount(Timeline.INDEFINITE);
+        previewTimeline.play();
+        if (previewPlayButton != null) {
+            previewPlayButton.setText("Pause");
+        }
+    }
+
+    private void stopPreviewPlayback() {
+        if (previewTimeline != null) {
+            previewTimeline.stop();
+        }
+        if (previewPlayButton != null) {
+            previewPlayButton.setText("Play");
+        }
+    }
+
+    private void renderPreviewFrame() {
+        if (rawEvenImage == null) {
+            return;
+        }
+        int totalFrames = getPreviewTotalFrames();
+        previewFrameIndex = Math.max(0, Math.min(previewFrameIndex, totalFrames - 1));
+        EffectConfig config = buildEffectConfig();
+        boolean effectsOnly = effectsOnlyPreviewCheck != null && effectsOnlyPreviewCheck.isSelected();
+        processedImage = imageProcessor.applyEffects(rawEvenImage, config, previewFrameIndex, totalFrames);
+        BufferedImage toDisplay = effectsOnly
+                ? imageProcessor.applyEffectsOnlyAlphaLayer(rawEvenImage, config, previewFrameIndex, totalFrames)
+                : processedImage;
+        previewTitle.setText("Preview — " + presetCombo.getValue());
+        javafx.scene.image.Image fxImage = SwingFXUtils.toFXImage(toDisplay, null);
+        previewImageView.setImage(fxImage);
+        updatePreviewFrameLabel();
+    }
+
     private void refreshPreviewIfLoaded() {
         if (applyingPresetDefaults) {
             return;
         }
         if (rawEvenImage != null) {
-            processedImage = imageProcessor.applyEffects(rawEvenImage, buildEffectConfig(), 0, 1);
-            previewTitle.setText("Preview — " + presetCombo.getValue());
-            javafx.scene.image.Image fxImage = SwingFXUtils.toFXImage(processedImage, null);
-            previewImageView.setImage(fxImage);
+            renderPreviewFrame();
         }
     }
 
     private EffectConfig.EffectSetting effectSettingOf(EffectControls controls) {
         return new EffectConfig.EffectSetting(
-                controls.mode.getValue(),
+                controls.modeToggle.isSelected() ? EffectMode.ON : EffectMode.NONE,
                 (int) Math.round(controls.variance.getValue()),
                 (int) Math.round(controls.frequency.getValue()),
                 (int) Math.round(controls.randomness.getValue()));
@@ -1204,8 +1695,11 @@ public class MainWindow extends Application {
                 setStatus("Could not read file. Make sure it is a valid image.", true);
                 return;
             }
+            stopPreviewPlayback();
             rawEvenImage = imageProcessor.ensureEvenDimensions(raw);
             currentImageFile = file;
+            previewFrameIndex = 0;
+            updatePreviewFrameBounds();
             refreshPreviewIfLoaded();
             // Select matching gallery entry if present
             String absPath = file.getAbsolutePath();
@@ -1231,6 +1725,9 @@ public class MainWindow extends Application {
         }
 
         exportButton.setDisable(true);
+        if (exportEffectsButton != null) {
+            exportEffectsButton.setDisable(true);
+        }
         progressBar.setStyle("");
         progressBar.setOnMouseClicked(null);
         progressBar.setCursor(javafx.scene.Cursor.DEFAULT);
@@ -1277,6 +1774,63 @@ public class MainWindow extends Application {
             progressBar.setVisible(false);
             Throwable cause = task.getException();
             setStatus("Export failed: " + (cause != null ? cause.getMessage() : "unknown error"), true);
+            updateExportButtonState();
+        });
+
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void exportEffectsAlphaSequence() {
+        if (rawEvenImage == null) {
+            return;
+        }
+        if (videoManager != null && gallerySettings != null
+                && videoManager.isSpaceAtCapacity(gallerySettings)) {
+            setStatus("Storage limit reached. Free space or raise the limit in Video Gallery → Settings.", true);
+            return;
+        }
+
+        exportButton.setDisable(true);
+        if (exportEffectsButton != null) {
+            exportEffectsButton.setDisable(true);
+        }
+        progressBar.setStyle("");
+        progressBar.setOnMouseClicked(null);
+        progressBar.setCursor(javafx.scene.Cursor.DEFAULT);
+        progressBar.setProgress(ProgressIndicator.INDETERMINATE_PROGRESS);
+        progressBar.setVisible(true);
+        setStatus("Exporting transparent effects PNG sequence…", false);
+
+        Task<Path> task = new Task<>() {
+            @Override
+            protected Path call() throws Exception {
+                EffectConfig config = buildEffectConfig();
+                String imageName = currentImageFile != null
+                        ? stripExtension(currentImageFile.getName()) : "image";
+                String presetName = presetCombo.getValue() != null
+                        ? presetCombo.getValue().name().toLowerCase().replace('_', '-') : "none";
+                String ts = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+                String dirName = imageName + "_" + presetName + "_effects_alpha_" + ts;
+                return videoCreator.createTransparentPngSequence(settings, dirName,
+                        (frameIndex, totalFrames) -> imageProcessor.applyEffectsOnlyAlphaLayer(
+                                rawEvenImage, config, frameIndex, totalFrames));
+            }
+        };
+
+        task.setOnSucceeded(e -> {
+            Path outDir = task.getValue();
+            progressBar.setProgress(1.0);
+            progressBar.setStyle("-fx-accent: #4caf50;");
+            setStatus("Saved transparent effect frames to: " + outDir + " (use in editor as alpha overlay)", false);
+            updateExportButtonState();
+        });
+
+        task.setOnFailed(e -> {
+            progressBar.setVisible(false);
+            Throwable cause = task.getException();
+            setStatus("Effects export failed: " + (cause != null ? cause.getMessage() : "unknown error"), true);
             updateExportButtonState();
         });
 

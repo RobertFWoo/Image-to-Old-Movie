@@ -156,38 +156,45 @@ Visual style by severity:
 This is so much better scratches. 
 ---
 
-## Phase 2: App Scaling - Progress Update (April 22, 2026)
+## Phase 2: App Scaling - Progress Update (April 24, 2026)
 
-### ? Completed
+### Completed
 
 1. **Fixed Preset Dropdown Text Visibility** - Improved styling for better contrast
 2. **Window Sizing** - Increased from 1240x780 to 1260x920 to accommodate new controls
 3. **PresetManager Class** - Created for managing custom presets with JSON persistence (presets.json)
 4. **ImageHistory Class** - Created for tracking image history and backups
 5. **ProjectManager Class** - Created for managing projects (image + settings combinations)
+6. **Image/Video Gallery Tabs** - Added separate gallery tabs with thumbnail previews and interactions
+7. **Video Gallery Storage Management** - Added settings for output folder, max space, max count, plus capacity indicator
+8. **Filename Convention** - Generated videos now include source image + preset + timestamp
+9. **Preset Management UI** - Added Add/Update/Delete custom preset controls
+10. **Compact Effect Toggles** - Replaced mode dropdowns with ON/OFF toggles and disabled states
+11. **Persistent Split Divider** - Divider between preview section and preset/effects section is persisted
+12. **Mini Video Preview Viewer** - Added frame stepping, play/pause, loop/one-pass, FPS (30/60), and 1-10 second preview range
 
-### ?? Next Steps
+### Next Steps
 
-The infrastructure for app scaling is now in place. The following features are ready for UI integration:
+The infrastructure and core UI integration are now in place. Current priorities are refinement and quality:
 
 **High Priority:**
-- Integrate drag-drop support on the image preview (replaces current drop zone)
-- Add image history list UI next to preview with selection controls
-- Implement image folder configuration UI
+- Add automated visual regression checks for key UI sections
+- Add robust validation for custom preset names (duplicates/invalid chars)
+- Expand preview performance tuning for larger images and high FPS mode
 
 **Medium Priority:**
-- Create simplified preset management UI (using the PresetManager infrastructure)
 - Add project management UI (using the ProjectManager infrastructure)
 - Implement unsaved changes detection and prompt when switching projects/images
+- Add optional screenshot automation workflow for docs refresh
 
 **Implementation Notes:**
-- All three manager classes (PresetManager, ImageHistory, ProjectManager) are built and compile cleanly
-- Managers handle JSON persistence automatically
-- PresetManager prevents deletion of built-in presets
-- ImageHistory supports backups and tracks up to 20 recent images
-- ProjectManager tracks unsaved changes flag
+- Core manager classes (PresetManager, ImageHistory, ProjectManager) build cleanly
+- PresetManager is now integrated in MainWindow for custom preset lifecycle
+- Storage-policy enforcement blocks export when at capacity
+- Preview now supports temporal inspection, not only static image preview
+- Divider state is persisted through Java Preferences
 
-The core infrastructure is complete and tested. Next work focuses on integrating these managers into MainWindow UI.
+The updated UI architecture is implemented and documented in `USER_GUIDE.md`.
 
 ---
 
@@ -224,3 +231,12 @@ I like the way this app is turning out. I want the effects dropdown to be a whit
 ---
 
 in the video tab, I want as a thumbnail, the image used with a video symbol overlay (like a play button) to indicate that it is a video. When the user clicks on the thumbnail, it will play the video in the default video player. This would make it easy for users to visually identify their generated videos in the gallery and quickly access them for viewing, enhancing the overall user experience and making the app more enjoyable to use. The thumbnail with the video symbol overlay would provide a clear and intuitive way for users to navigate their video gallery, allowing them to easily find and enjoy their old-style video creations with just a click.   
+
+---
+
+We have made some changes. So we need to update the documentation to reflect the new features and UI changes. This includes updating the user guide to explain the new image and video gallery tabs, the settings menu for managing storage space, and the new file naming convention for generated videos. We also need to update any screenshots or visual aids in the documentation to match the current state of the app, ensuring that users have accurate and up-to-date information on how to use the tool effectively. Additionally, we should review the documentation for clarity and completeness, making sure that all new features are well-explained and that users can easily understand how to navigate the updated interface and manage their content within the app.
+Then, Persist the location of the divider between the the preview and preset sections. Also, the preview should show not just the image but a sample frame that the user can advance forward or backward to get a sample of how the effects might look frame by frame. So we would need about one second worth of frames, i.e. 60 or 30. that the user can scroll forward and backward and do a quick preview when he plays the video. Let the preview be a mini video viewer that can move frame by frame or loop or one-pass. The controls for this should be under the preview itself with the frame number indicated so that when the preview cycles, it shows the frame number being shown at that time. Make this a cool preview of video footage with 1 to 10 seconds worth of frames to preview.
+
+---
+
+I would like to have an alpha channel opacity version of the preview that just shows the effects without the underlying image, so users can see the effect layers separately. This would allow users to better understand how each effect contributes to the final look of the video, giving them more insight into the creative process and helping them fine-tune their settings for the desired vintage aesthetic. The alpha channel preview could be toggled on and off, allowing users to easily switch between viewing the full preview with the image and effects combined, and the separate effects layer to analyze the individual contributions of each effect. This feature would enhance the user experience by providing a deeper level of control and understanding over the video creation process, making it easier for users to achieve their desired old-style look with precision and creativity. We should also be able to export only the effects with a transparent background without the image. This way, uses can overlay this transparent background video on top of other footage. We can also allow the user to import a video instead of an image and have the app apply the effects to the video, creating an old-style version of their original footage. This would expand the functionality of the app, allowing users to not only create old-style videos from still images but also transform their existing video content with vintage effects, further enhancing the versatility and appeal of the tool for a wider range of creative projects.

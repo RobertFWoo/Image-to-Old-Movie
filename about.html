@@ -21,34 +21,36 @@
 </head>
 <body>
     <h1>Image to Old Video</h1>
-    <p><strong>Version:</strong> 0.1.0 &nbsp;|&nbsp; <strong>Language:</strong> Java 21 &nbsp;|&nbsp;
+    <p><strong>Version:</strong> 0.2.0 &nbsp;|&nbsp; <strong>Language:</strong> Java 25 &nbsp;|&nbsp;
        <strong>UI:</strong> JavaFX</p>
 
     <h2>What It Does</h2>
     <p>
         Image to Old Video takes a still image and converts it into a short video with a vintage old-film look.
-        Drag in a <code>.png</code>, <code>.jpg</code>, or <code>.bmp</code> image, preview the sepia effect,
+        Drag in a <code>.png</code>, <code>.jpg</code>, or <code>.bmp</code> image, preview the effect frame-by-frame,
         and export a ready-to-use MP4 file.
     </p>
 
-    <h2>Phase 1 Features</h2>
+    <h2>Current Features</h2>
     <ul>
-        <li>Drag-and-drop or browse to load an image.</li>
-        <li>Sepia tone filter applied automatically.</li>
-        <li>Live preview of the processed image before export.</li>
-        <li>Configurable video duration (default: 20 seconds).</li>
-        <li>Configurable output folder (defaults to <code>D:\ImageToOldVideo</code>, falls back to <code>C:\</code>).</li>
+        <li>Image Gallery and Video Gallery tabs for content management.</li>
+        <li>Drag-and-drop image loading and image preview replacement.</li>
+        <li>Per-effect ON/OFF toggles with compact controls for variance, frequency, and randomness.</li>
+        <li>Mini video preview controls (frame slider, step, play/pause, loop, 1-10 second preview length, 30/60 FPS).</li>
+        <li>Configurable video duration (1 to 300 seconds) and output folder.</li>
+        <li>Video Gallery storage settings for max space and max video count, including usage indicator.</li>
+        <li>Generated filenames include source image name, preset name, and timestamp.</li>
         <li>MP4 output encoded with H.264 via Jcodec.</li>
     </ul>
 
     <h2>How to Run</h2>
     <pre><code>mvn javafx:run</code></pre>
 
-    <h2>Planned Future Features</h2>
+    <h2>Notes</h2>
     <ul>
-        <li>Additional effects: film grain, flicker, color fading.</li>
-        <li>Era presets: "20s Reel", "50s Film", "80s VHS".</li>
-        <li>Soundtrack processing (vintage audio effects).</li>
+        <li>The split divider between preview and effects sections is persisted between launches.</li>
+        <li>The export section is anchored above the status bar.</li>
+        <li>Video playback from gallery uses the OS default video player.</li>
     </ul>
 </body>
 </html>

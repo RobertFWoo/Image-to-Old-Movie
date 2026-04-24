@@ -1,11 +1,16 @@
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\Main.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\EffectConfig.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\EffectMode.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\ImageHistory.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\Preset.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\PresetManager.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\ProjectManager.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\model\VideoSettings.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\processing\ImageProcessor.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\processing\VideoCreator.java
-D:\VSProjects\Java-Projects\Java-Projects\image-to-old-video\src\main\java\com\imagetooldvideo\ui\MainWindow.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\Main.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\EffectConfig.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\EffectMode.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\GalleryEntry.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\GalleryManager.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\GallerySettings.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\ImageHistory.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\Preset.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\PresetManager.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\ProjectManager.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\VideoEntry.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\VideoManager.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\model\VideoSettings.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\processing\ImageProcessor.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\processing\VideoCreator.java
+D:\VSC Projects\Image-to-Old-Movie\src\main\java\com\imagetooldvideo\ui\MainWindow.java
